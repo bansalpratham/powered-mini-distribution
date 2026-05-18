@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 export async function runInTransaction<T>(
   fn: (session: mongoose.ClientSession | null) => Promise<T>
 ): Promise<T> {
-  const maxRetries = 6;
+  const maxRetries = 15; // Increased to give the free database tier plenty of attempts to resolve contention
   let attempt = 0;
 
   while (true) {
@@ -49,8 +49,13 @@ export async function runInTransaction<T>(
           `⚠️ Concurrency Write Conflict detected on attempt ${attempt}/${maxRetries}. Retrying transaction after randomized backoff...`
         );
         await session.endSession();
-        // Add a randomized delay (jitter backoff) to allow the competing transaction to release its lock
-        const delay = Math.floor(Math.random() * 80) + 30; // 30ms to 110ms delay
+        
+        // Industry-standard Jittered Backoff: scales slightly as attempts increase to allow lock congestion to clear
+        const baseDelay = 40; 
+        const maxJitter = 120;
+        const attemptMultiplier = attempt * 15; // Incremental delay spacing
+        const delay = Math.floor(Math.random() * maxJitter) + baseDelay + attemptMultiplier;
+        
         await new Promise((resolve) => setTimeout(resolve, delay));
         continue;
       }
