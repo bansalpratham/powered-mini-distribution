@@ -12,7 +12,6 @@ interface CreateLeadInput {
 
 export async function createLead(input: CreateLeadInput, session?: mongoose.ClientSession | null) {
   await connectDB();
-  const queryOpts = session ? { session } : {};
 
   // Check unique compound index manually as a secondary layer
   const leadExists = await Lead.findOne({
@@ -26,19 +25,16 @@ export async function createLead(input: CreateLeadInput, session?: mongoose.Clie
     throw err;
   }
 
-  const leadArray = await Lead.create(
-    [
-      {
-        name: input.name,
-        phone: input.phone,
-        city: input.city,
-        serviceId: new mongoose.Types.ObjectId(input.serviceId),
-        description: input.description,
-      },
-    ],
-    queryOpts
-  );
-  return leadArray[0];
+  const lead = new Lead({
+    name: input.name,
+    phone: input.phone,
+    city: input.city,
+    serviceId: new mongoose.Types.ObjectId(input.serviceId),
+    description: input.description,
+  });
+
+  await lead.save(session ? { session } : {});
+  return lead;
 }
 
 export async function getLeadById(leadId: string, session?: mongoose.ClientSession | null) {

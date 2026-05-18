@@ -20,8 +20,6 @@ export async function allocateLead(input: AllocateLeadInput) {
   await connectDB();
 
   return await runInTransaction(async (session) => {
-    const queryOpts = session ? { session } : {};
-
     // 1. Resolve and validate service
     const service = await Service.findById(input.serviceId).session(session || null);
     if (!service) {
@@ -73,16 +71,11 @@ export async function allocateLead(input: AllocateLeadInput) {
       // Retrieve or initialize AllocationState for persistent round-robin
       let state = await AllocationState.findOne({ serviceId: service._id }).session(session || null);
       if (!state) {
-        const stateArray = await AllocationState.create(
-          [
-            {
-              serviceId: service._id,
-              lastAssignedProviderIndex: -1,
-            },
-          ],
-          queryOpts
-        );
-        state = stateArray[0];
+        state = new AllocationState({
+          serviceId: service._id,
+          lastAssignedProviderIndex: -1,
+        });
+        await state.save(session ? { session } : {});
       }
 
       const N = poolNames.length;
@@ -111,7 +104,7 @@ export async function allocateLead(input: AllocateLeadInput) {
 
       // Update the allocation state with the last assigned provider index
       state.lastAssignedProviderIndex = lastIndex;
-      await state.save(queryOpts);
+      await state.save(session ? { session } : {});
     }
 
     // 6. Save Assignments and Increment Lead Counts
@@ -124,7 +117,11 @@ export async function allocateLead(input: AllocateLeadInput) {
         assignedAt: new Date(),
       }));
 
-      await LeadAssignment.create(assignmentsData, queryOpts);
+      // Pass ordered: true to resolve multi-document session creation in Mongoose
+      await LeadAssignment.create(
+        assignmentsData, 
+        session ? { session, ordered: true } : { ordered: true }
+      );
 
       // Atomically increment leadsReceivedCount for each assigned provider
       const providerIds = assignedProviders.map((p) => p._id);
@@ -158,8 +155,6 @@ export async function assignExistingLead(leadId: string) {
   await connectDB();
 
   return await runInTransaction(async (session) => {
-    const queryOpts = session ? { session } : {};
-
     // 1. Fetch Lead using model query
     const LeadModel = mongoose.model('Lead');
     const lead = await LeadModel.findById(leadId).session(session || null);
@@ -174,7 +169,7 @@ export async function assignExistingLead(leadId: string) {
     }
 
     // 3. Clear any existing assignments first to avoid duplicate violations
-    await LeadAssignment.deleteMany({ leadId: lead._id }, queryOpts);
+    await LeadAssignment.deleteMany({ leadId: lead._id }, session ? { session } : {});
 
     // 4. Define mandatory providers and pool for this service
     let mandatoryNames: string[] = [];
@@ -217,16 +212,11 @@ export async function assignExistingLead(leadId: string) {
     if (assignedProvidersMap.size < 3 && poolNames.length > 0) {
       let state = await AllocationState.findOne({ serviceId: service._id }).session(session || null);
       if (!state) {
-        const stateArray = await AllocationState.create(
-          [
-            {
-              serviceId: service._id,
-              lastAssignedProviderIndex: -1,
-            },
-          ],
-          queryOpts
-        );
-        state = stateArray[0];
+        state = new AllocationState({
+          serviceId: service._id,
+          lastAssignedProviderIndex: -1,
+        });
+        await state.save(session ? { session } : {});
       }
 
       const N = poolNames.length;
@@ -253,7 +243,7 @@ export async function assignExistingLead(leadId: string) {
       }
 
       state.lastAssignedProviderIndex = lastIndex;
-      await state.save(queryOpts);
+      await state.save(session ? { session } : {});
     }
 
     // 7. Save Assignments and Increment Lead Counts
@@ -266,7 +256,11 @@ export async function assignExistingLead(leadId: string) {
         assignedAt: new Date(),
       }));
 
-      await LeadAssignment.create(assignmentsData, queryOpts);
+      // Pass ordered: true to resolve multi-document session creation in Mongoose
+      await LeadAssignment.create(
+        assignmentsData, 
+        session ? { session, ordered: true } : { ordered: true }
+      );
 
       const providerIds = assignedProviders.map((p) => p._id);
       await Provider.updateMany(
